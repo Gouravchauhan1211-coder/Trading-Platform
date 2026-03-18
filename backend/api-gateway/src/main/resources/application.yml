@@ -1,0 +1,358 @@
+spring:
+  application:
+    name: api-gateway
+  
+  # Virtual Threads (Java 21+)
+  threads:
+    virtual:
+      enabled: true
+  
+  # Redis Configuration for Rate Limiting
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${GOOGLE_CLIENT_ID}
+            client-secret: ${GOOGLE_CLIENT_SECRET}
+            scope: openid,profile,email
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+
+  cloud:
+    gateway:
+      default-filters:
+        - PreserveHostHeader
+        - RemoveRequestHeader=Cookie
+        - DedupeResponseHeader=Access-Control-Allow-Origin Access-Control-Allow-Credentials
+        # Rate Limiting - 10 requests/second with burst capacity of 20
+        - name: RequestRateLimiter
+          args:
+            "[redis-rate-limiter.replenishRate]": 10
+            "[redis-rate-limiter.burstCapacity]": 20
+            "[redis-rate-limiter.requestedTokens]": 1
+            key-resolver: "#{@ipKeyResolver}"
+      routes:
+
+        # API Documentation Routes (Centralized)
+        - id: api-docs
+          uri: lb://user-service
+          predicates:
+            - Path=/api/admin/docs/**
+
+        # User Service - Registration (Public)
+        - id: user-service-register
+          uri: lb://user-service
+          predicates:
+            - Path=/api/v1/users/register, /api/v1/users/register/**
+          filters:
+            - RemoveRequestHeader=Cookie
+            - RemoveRequestHeader=Authorization
+
+        # User Service routes
+        - id: user-service
+          uri: lb://user-service
+          predicates:
+            - Path=/api/v1/auth/**, /api/v1/users/**
+          filters:
+            - RemoveRequestHeader=Cookie
+            - TokenRelay=
+
+        # Market Service routes
+        - id: market-service
+          uri: lb://market-service
+          predicates:
+            - Path=/api/v1/market/**
+          filters:
+            - RemoveRequestHeader=Cookie
+
+        # Portfolio Service routes
+        - id: portfolio-service
+          uri: lb://portfolio-service
+          predicates:
+            - Path=/api/v1/portfolios/**
+          filters:
+            - RemoveRequestHeader=Cookie
+            - TokenRelay=
+
+        # Funds Service routes
+        - id: funds-service
+          uri: lb://funds-service
+          predicates:
+            - Path=/api/v1/funds/**
+          filters:
+            - RemoveRequestHeader=Cookie
+            - TokenRelay=
+
+        # Ledger Service routes (Source of Truth)
+        - id: ledger-service
+          uri: lb://ledger-service
+          predicates:
+            - Path=/api/v1/ledger/**
+          filters:
+            - RemoveRequestHeader=Cookie
+            - TokenRelay=
+
+        # Order Service routes
+        - id: order-service
+          uri: lb://order-service
+          predicates:
+            - Path=/api/v1/orders/**
+          filters:
+            - RemoveRequestHeader=Cookie
+            - TokenRelay=
+
+        # Trade Service routes
+        - id: trade-service
+          uri: lb://trade-service
+          predicates:
+            - Path=/api/v1/trades/**
+          filters:
+            - RemoveRequestHeader=Cookie
+            - TokenRelay=
+
+        # Payment Service routes
+        - id: payment-service
+          uri: lb://payment-service
+          predicates:
+            - Path=/api/v1/payments/**
+          filters:
+            - RemoveRequestHeader=Cookie
+            - TokenRelay=
+
+        # Payment Webhook (public, no auth - signature verified by service)
+        - id: payment-webhook
+          uri: lb://payment-service
+          predicates:
+            - Path=/api/v1/payments/webhook/**
+          filters:
+            - RemoveRequestHeader=Cookie
+
+        # Notification Service routes
+        - id: notification-service
+          uri: lb://notification-service
+          predicates:
+            - Path=/api/v1/notifications/**
+          filters:
+            - RemoveRequestHeader=Cookie
+            - TokenRelay=
+
+        # Notification Service WebSocket
+        - id: notification-websocket
+          uri: lb:ws://notification-service
+          predicates:
+            - Path=/ws/notifications/**
+
+        # Report Service routes
+        - id: report-service
+          uri: lb://report-service
+          predicates:
+            - Path=/api/v1/reports/**
+          filters:
+            - RemoveRequestHeader=Cookie
+            - TokenRelay=
+
+server:
+  port: 8090
+
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics,gateway,routes
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true  # Enables /actuator/health/liveness and /actuator/health/readiness
+    prometheus:
+      enabled: true
+  health:
+    # Kubernetes probes
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
+    # Dependency health indicators
+    redis:
+      enabled: true
+    diskSpace:
+      enabled: true
+      threshold: 10MB
+  # OpenTelemetry Tracing Configuration
+  tracing:
+    enabled: true
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLER_ARG:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+  observations:
+    key-values:
+      application: ${spring.application.name}
+
+# Security Custom Configuration
+security:
+  enforce-https: ${ENFORCE_HTTPS:false}
+
+# JWT Configuration (must match user-service)
+jwt:
+  secret: ${JWT_SECRET:dev-secret-key-for-local-development-only-change-in-production-minimum-256-bits}
+  expiration: ${JWT_EXPIRATION:86400000} # 24 hours in milliseconds
+
+# Resilience4j Configuration
+resilience4j:
+  # Circuit Breaker - Fail-fast for downstream services
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        slowCallRateThreshold: 80
+        slowCallDurationThreshold: 2s
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        recordExceptions:
+          - java.io.IOException
+          - java.net.SocketTimeoutException
+          - org.springframework.cloud.gateway.support.TimeoutException
+          - org.springframework.web.client.ResourceAccessException
+        ignoreExceptions:
+          - org.springframework.web.client.HttpClientErrorException$BadRequest
+          - org.springframework.web.client.HttpClientErrorException$NotFound
+          - in.winvestco.common.exception.NonRetryableException
+    instances:
+      userService:
+        baseConfig: default
+      marketService:
+        baseConfig: default
+      portfolioService:
+        baseConfig: default
+      fundsService:
+        baseConfig: default
+      orderService:
+        baseConfig: default
+      tradeService:
+        baseConfig: default
+      paymentService:
+        baseConfig: default
+      notificationService:
+        baseConfig: default
+      reportService:
+        baseConfig: default
+
+  # Retry - Exponential Backoff with Jitter
+  retry:
+    configs:
+      default:
+        maxAttempts: 3
+        waitDuration: 500ms
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        enableRandomizedWait: true
+        randomizedWaitFactor: 0.5
+        retryExceptions:
+          - java.io.IOException
+          - java.net.SocketTimeoutException
+          - org.springframework.cloud.gateway.support.TimeoutException
+        ignoreExceptions:
+          - org.springframework.web.client.HttpClientErrorException$BadRequest
+          - org.springframework.web.client.HttpClientErrorException$NotFound
+          - org.springframework.web.client.HttpClientErrorException$Unauthorized
+          - in.winvestco.common.exception.NonRetryableException
+    instances:
+      userService:
+        baseConfig: default
+      marketService:
+        baseConfig: default
+      portfolioService:
+        baseConfig: default
+      fundsService:
+        baseConfig: default
+      orderService:
+        baseConfig: default
+      tradeService:
+        baseConfig: default
+      paymentService:
+        baseConfig: default
+      notificationService:
+        baseConfig: default
+      reportService:
+        baseConfig: default
+
+  # Bulkhead - Resource Isolation
+  bulkhead:
+    configs:
+      default:
+        maxConcurrentCalls: 20
+        maxWaitDuration: 100ms
+    instances:
+      userService:
+        baseConfig: default
+      marketService:
+        baseConfig: default
+      portfolioService:
+        baseConfig: default
+      fundsService:
+        baseConfig: default
+      orderService:
+        baseConfig: default
+      tradeService:
+        baseConfig: default
+      paymentService:
+        baseConfig: default
+      notificationService:
+        baseConfig: default
+      reportService:
+        baseConfig: default
+
+  # TimeLimiter - Timeout Control
+  timelimiter:
+    instances:
+      userService:
+        timeoutDuration: 3s
+        cancelRunningFuture: true
+      marketService:
+        timeoutDuration: 5s
+        cancelRunningFuture: true
+      portfolioService:
+        timeoutDuration: 3s
+        cancelRunningFuture: true
+      fundsService:
+        timeoutDuration: 3s
+        cancelRunningFuture: true
+      orderService:
+        timeoutDuration: 3s
+        cancelRunningFuture: true
+      tradeService:
+        timeoutDuration: 3s
+        cancelRunningFuture: true
+      paymentService:
+        timeoutDuration: 5s
+        cancelRunningFuture: true
+      notificationService:
+        timeoutDuration: 2s
+        cancelRunningFuture: true
+      reportService:
+        timeoutDuration: 10s
+        cancelRunningFuture: true

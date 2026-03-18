@@ -1,0 +1,154 @@
+server:
+  port: 8082
+
+spring:
+  application:
+    name: market-data-service
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/trading_platform}
+    username: ${SPRING_DATASOURCE_USERNAME:trading_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:trading_pass}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: false
+  data:
+    redis:
+      host: ${SPRING_REDIS_HOST:localhost}
+      port: ${SPRING_REDIS_PORT:6379}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.springframework.kafka.support.serializer.JsonSerializer
+
+app:
+  nse:
+    scrape:
+      enabled: ${NSE_SCRAPE_ENABLED:true}
+      poll-interval: 180000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+# Resilience4j Configuration
+resilience4j:
+  # Circuit Breaker Configuration
+  circuitbreaker:
+    instances:
+      marketDataService:
+        failureRateThreshold: 50
+        waitDurationInOpenState: 30s
+        slidingWindowSize: 100
+        minimumNumberOfCalls: 10
+        permittedNumberOfCallsInHalfOpenState: 10
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        recordExceptions:
+          - java.lang.Exception
+        eventConsumerBufferSize: 10
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        
+      nseScraperService:
+        failureRateThreshold: 60
+        waitDurationInOpenState: 60s
+        slidingWindowSize: 50
+        minimumNumberOfCalls: 5
+        permittedNumberOfCallsInHalfOpenState: 5
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        recordExceptions:
+          - java.lang.Exception
+          - org.springframework.web.client.HttpClientErrorException
+          - org.springframework.web.client.HttpServerErrorException
+        eventConsumerBufferSize: 10
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+
+  # Retry Configuration
+  retry:
+    instances:
+      marketDataService:
+        maxAttempts: 3
+        waitDuration: 1s
+        retryExceptions:
+          - java.lang.Exception
+        exponentialBackoffMultiplier: 2
+        exponentialMaxWaitDuration: 5s
+        
+      nseScraperService:
+        maxAttempts: 3
+        waitDuration: 2s
+        retryExceptions:
+          - java.lang.Exception
+          - org.springframework.web.client.HttpClientErrorException
+          - org.springframework.web.client.HttpServerErrorException
+        exponentialBackoffMultiplier: 2
+        exponentialMaxWaitDuration: 10s
+
+  # Rate Limiter Configuration
+  ratelimiter:
+    instances:
+      marketDataService:
+        limitForPeriod: 100
+        limitRefreshPeriod: 1s
+        timeoutDuration: 5s
+        registerHealthIndicator: true
+        
+      nseScraperService:
+        limitForPeriod: 10
+        limitRefreshPeriod: 1s
+        timeoutDuration: 5s
+        registerHealthIndicator: true
+
+  # Time Limiter Configuration
+  timelimiter:
+    instances:
+      marketDataService:
+        timeoutDuration: 10s
+        cancelRunningFuture: true
+        registerHealthIndicator: true
+        
+      nseScraperService:
+        timeoutDuration: 15s
+        cancelRunningFuture: true
+        registerHealthIndicator: true
+
+  # Bulkhead Configuration
+  bulkhead:
+    instances:
+      marketDataService:
+        maxConcurrentCalls: 20
+        maxWaitDuration: 100ms
+        registerHealthIndicator: true
+        
+      nseScraperService:
+        maxConcurrentCalls: 5
+        maxWaitDuration: 200ms
+        registerHealthIndicator: true
+
+# Logging Configuration
+logging:
+  level:
+    com.trading.marketdata: DEBUG
+    io.github.resilience4j: INFO
+    org.springframework.web.client: DEBUG
+    org.springframework.retry: DEBUG
+    com.fasterxml.jackson: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{traceId},%X{spanId}] %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{traceId},%X{spanId}] %logger{36} - %msg%n"
+  file:
+    name: logs/market-data-service.log
+    max-size: 100MB
+    max-history: 30

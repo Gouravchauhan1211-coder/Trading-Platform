@@ -1,0 +1,28 @@
+# Build outputs
+target/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Dependencies
+node_modules/
+
+# Environment
+.env
+.env.local
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd

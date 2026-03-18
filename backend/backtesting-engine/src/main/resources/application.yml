@@ -1,0 +1,19 @@
+server:
+  port: 8087
+
+spring:
+  application:
+    name: backtesting-engine
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/trading_platform}
+    username: ${SPRING_DATASOURCE_USERNAME:trading_user}
+    password: ${SPRING_DATASOURCE_PASSWORD:trading_pass}
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+app:
+  backtest:
+    default-slippage: 0.001
+    default-brokerage: 0.001
+    initial-capital: 100000

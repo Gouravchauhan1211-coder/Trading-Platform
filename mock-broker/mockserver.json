@@ -1,0 +1,88 @@
+[
+  {
+    "httpRequest": {
+      "method": "POST",
+      "path": "/api/v1/orders"
+    },
+    "httpResponse": {
+      "statusCode": 200,
+      "headers": {
+        "Content-Type": ["application/json"]
+      },
+      "body": "{\"success\": true, \"orderId\": \"mock-order-${random.uuid}\", \"status\": \"FILLED\", \"message\": \"Order placed successfully\"}",
+      "delay": {
+        "timeUnit": "MILLISECONDS",
+        "value": 100
+      }
+    }
+  },
+  {
+    "httpRequest": {
+      "method": "GET",
+      "path": "/api/v1/orders/.*"
+    },
+    "httpResponse": {
+      "statusCode": 200,
+      "headers": {
+        "Content-Type": ["application/json"]
+      },
+      "body": "{\"success\": true, \"orderId\": \"${uri.variable.orderId}\", \"status\": \"FILLED\", \"filledQuantity\": 10, \"averagePrice\": 250.50}",
+      "delay": {
+        "timeUnit": "MILLISECONDS",
+        "value": 50
+      }
+    }
+  },
+  {
+    "httpRequest": {
+      "method": "DELETE",
+      "path": "/api/v1/orders/.*"
+    },
+    "httpResponse": {
+      "statusCode": 200,
+      "headers": {
+        "Content-Type": ["application/json"]
+      },
+      "body": "{\"success\": true, \"message\": \"Order cancelled successfully\"}"
+    }
+  },
+  {
+    "httpRequest": {
+      "method": "GET",
+      "path": "/api/v1/positions"
+    },
+    "httpResponse": {
+      "statusCode": 200,
+      "headers": {
+        "Content-Type": ["application/json"]
+      },
+      "body": "{\"success\": true, \"positions\": []}"
+    }
+  },
+  {
+    "httpRequest": {
+      "method": "GET",
+      "path": "/api/v1/holdings"
+    },
+    "httpResponse": {
+      "statusCode": 200,
+      "headers": {
+        "Content-Type": ["application/json"]
+      },
+      "body": "{\"success\": true, \"holdings\": []}"
+    }
+  },
+  {
+    "httpRequest": {
+      "method": "GET",
+      "path": "/api/v1/quote/.*"
+    },
+    "httpResponse": {
+      "statusCode": 200,
+      "headers": {
+        "Content-Type": ["application/json"]
+      },
+      "body": "{\"success\": true, \"symbol\": \"${uri.variable.symbol}\", \"lastPrice\": 250.50, \"bidPrice\": 250.45, \"askPrice\": 250.55, \"volume\": 1000000}"
+    }
+  }
+]

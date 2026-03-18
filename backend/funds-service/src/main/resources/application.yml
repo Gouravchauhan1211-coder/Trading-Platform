@@ -1,0 +1,215 @@
+spring:
+  application:
+    name: funds-service
+
+  # Virtual Threads (Java 21+)
+  threads:
+    virtual:
+      enabled: true
+
+  # Database Configuration
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://127.0.0.1:5432/winvestco_funds_db}
+    username: ${SPRING_DATASOURCE_USERNAME:postgres}
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  # JPA/Hibernate properties
+  jpa:
+    hibernate:
+      ddl-auto: ${SPRING_JPA_HIBERNATE_DDL_AUTO:update}
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+
+  # Jackson Configuration
+  jackson:
+    time-zone: Asia/Kolkata
+    date-format: dd-MM-yyyy HH:mm:ss
+
+  # RabbitMQ Configuration (for listening to UserCreatedEvent)
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: 5672
+    username: guest
+    password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000
+          multiplier: 2.0
+          max-interval: 10000
+
+  # Enable bean definition overriding
+  main:
+    allow-bean-definition-overriding: true
+
+  # Flyway configuration
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+    locations: classpath:db/migration
+    repair-on-migrate: true
+    validate-on-migrate: false
+
+  cloud:
+    compatibility-verifier:
+      enabled: false
+    openfeign:
+      circuitbreaker:
+        enabled: true
+
+server:
+  port: ${SERVER_PORT:8086}
+
+# Eureka Client Configuration
+eureka:
+  client:
+    enabled: true
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+    register-with-eureka: true
+    fetch-registry: true
+    healthcheck:
+      enabled: true
+  instance:
+    prefer-ip-address: true
+    hostname: localhost
+    instance-id: ${spring.application.name}:${server.port}:${random.value}
+    lease-renewal-interval-in-seconds: 30
+    lease-expiration-duration-in-seconds: 90
+
+# Enable Actuator endpoints
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true  # Enables /actuator/health/liveness and /actuator/health/readiness
+    prometheus:
+      enabled: true
+  health:
+    # Kubernetes probes
+    livenessState:
+      enabled: true
+    readinessState:
+      enabled: true
+    # Dependency health indicators
+    db:
+      enabled: true
+    rabbit:
+      enabled: true
+    diskSpace:
+      enabled: true
+      threshold: 10MB
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+  # OpenTelemetry Tracing Configuration
+  tracing:
+    enabled: true
+    sampling:
+      probability: ${OTEL_TRACES_SAMPLER_ARG:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+      transport: http
+
+# Springdoc Configuration
+springdoc:
+  swagger-ui:
+    tryItOutEnabled: true
+
+# Logging Configuration
+logging:
+  level:
+    org.springframework.security: DEBUG
+    in.winvestco.funds_service: DEBUG
+
+# JWT Configuration (must match api-gateway)
+jwt:
+  secret: ${JWT_SECRET:dev-secret-key-for-local-development-only-change-in-production-minimum-256-bits}
+  expiration: ${JWT_EXPIRATION:86400000}
+
+# Resilience4j Configuration
+resilience4j:
+  # Circuit Breaker - Stricter thresholds for financial ledger-service
+  circuitbreaker:
+    configs:
+      default:
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 10
+        minimumNumberOfCalls: 5
+        failureRateThreshold: 50
+        slowCallRateThreshold: 80
+        slowCallDurationThreshold: 2s
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+        recordExceptions:
+          - java.io.IOException
+          - java.net.SocketTimeoutException
+          - feign.FeignException$ServiceUnavailable
+          - feign.FeignException$InternalServerError
+        ignoreExceptions:
+          - feign.FeignException$BadRequest
+          - feign.FeignException$NotFound
+          - in.winvestco.common.exception.NonRetryableException
+    instances:
+      ledgerService:
+        baseConfig: default
+        failureRateThreshold: 30
+        waitDurationInOpenState: 60s
+
+  # Retry - Fewer retries for financial operations
+  retry:
+    configs:
+      default:
+        maxAttempts: 3
+        waitDuration: 500ms
+        enableExponentialBackoff: true
+        exponentialBackoffMultiplier: 2
+        enableRandomizedWait: true
+        randomizedWaitFactor: 0.5
+        retryExceptions:
+          - java.io.IOException
+          - java.net.SocketTimeoutException
+          - feign.RetryableException
+        ignoreExceptions:
+          - feign.FeignException$BadRequest
+          - feign.FeignException$NotFound
+          - feign.FeignException$Unauthorized
+          - in.winvestco.common.exception.NonRetryableException
+    instances:
+      ledgerService:
+        baseConfig: default
+        maxAttempts: 2
+
+  # Bulkhead - Tighter resource isolation for financial operations
+  bulkhead:
+    configs:
+      default:
+        maxConcurrentCalls: 20
+        maxWaitDuration: 100ms
+    instances:
+      ledgerService:
+        maxConcurrentCalls: 10
+        maxWaitDuration: 50ms
+
+  # TimeLimiter - Longer timeout for ledger operations
+  timelimiter:
+    instances:
+      ledgerService:
+        timeoutDuration: 5s
+        cancelRunningFuture: true

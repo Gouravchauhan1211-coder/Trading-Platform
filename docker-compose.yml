@@ -1,0 +1,353 @@
+version: '3.8'
+
+# ============================================================
+# MAIN PROJECT - Trading-Platform-main
+# This is the PRIMARY trading platform project
+# Different from: D:\Trading platform & D:\winvestco-trading-platform-main
+# ============================================================
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: trading-postgres
+    environment:
+      POSTGRES_DB: trading_platform
+      POSTGRES_USER: trading_user
+      POSTGRES_PASSWORD: trading_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - trading-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trading_user"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: trading-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - trading-network
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Apache Kafka
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: trading-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - trading-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: trading-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - trading-network
+
+  # Kafka UI
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: trading-kafka-ui
+    depends_on:
+      - kafka
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: trading-cluster
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+    networks:
+      - trading-network
+
+  # API Gateway (Kong)
+  kong:
+    image: kong:3.3
+    container_name: trading-kong
+    depends_on:
+      - postgres
+    ports:
+      - "8000:8000"
+      - "8443:8443"
+    environment:
+      KONG_DATABASE: postgres
+      KONG_PG_HOST: postgres
+      KONG_PG_PORT: 5432
+      KONG_PG_USER: trading_user
+      KONG_PG_PASSWORD: trading_pass
+      KONG_PG_DATABASE: kong
+      KONG_DECLARATIVE_CONFIG: /usr/local/kong/kong.yml
+      KONG_PROXY_ACCESS_LOG: /dev/stdout
+      KONG_ADMIN_ACCESS_LOG: /dev/stdout
+      KONG_PROXY_ERROR_LOG: /dev/stderr
+      KONG_ADMIN_ERROR_LOG: /dev/stderr
+    command: sh -c "sleep 10 && PGPASSWORD=trading_pass psql -h postgres -U trading_user -d postgres -c 'CREATE DATABASE kong;' 2>/dev/null || true && kong migrations bootstrap && kong start"
+    volumes:
+      - ./gateway/kong.yml:/usr/local/kong/kong.yml:ro
+    networks:
+      - trading-network
+
+  # User Service
+  user-service:
+    build:
+      context: ./backend
+      dockerfile: user-service/Dockerfile
+    container_name: trading-user-service
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/trading_platform
+      SPRING_DATASOURCE_USERNAME: trading_user
+      SPRING_DATASOURCE_PASSWORD: trading_pass
+      JWT_SECRET: ${JWT_SECRET:-your-secret-key-change-in-production}
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - trading-network
+
+  # Market Data Service
+  market-data-service:
+    build:
+      context: ./backend
+      dockerfile: market-data-service/Dockerfile
+    container_name: trading-market-data-service
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/trading_platform
+      SPRING_DATASOURCE_USERNAME: trading_user
+      SPRING_DATASOURCE_PASSWORD: trading_pass
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      EXCEL_DATA_PATH: /data/Realtime All stock.xlsx
+    volumes:
+      - ./data:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    networks:
+      - trading-network
+
+  # Realtime Gateway Service
+  realtime-gateway:
+    build:
+      context: ./backend
+      dockerfile: realtime-gateway/Dockerfile
+    container_name: trading-realtime-gateway
+    ports:
+      - "8088:8088"
+    environment:
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    networks:
+      - trading-network
+
+  # Strategy Engine Service
+  strategy-engine:
+    build:
+      context: ./backend
+      dockerfile: strategy-engine/Dockerfile
+    container_name: trading-strategy-engine
+    ports:
+      - "8083:8083"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/trading_platform
+      SPRING_DATASOURCE_USERNAME: trading_user
+      SPRING_DATASOURCE_PASSWORD: trading_pass
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    networks:
+      - trading-network
+
+  # Order Service
+  order-service:
+    build:
+      context: ./backend
+      dockerfile: order-service/Dockerfile
+    container_name: trading-order-service
+    ports:
+      - "8084:8084"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/trading_platform
+      SPRING_DATASOURCE_USERNAME: trading_user
+      SPRING_DATASOURCE_PASSWORD: trading_pass
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      BROKER_API_URL: ${BROKER_API_URL:-http://mock-broker:8090}
+      BROKER_API_KEY: ${BROKER_API_KEY:-}
+      BROKER_API_SECRET: ${BROKER_API_SECRET:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    networks:
+      - trading-network
+
+  # Portfolio Service
+  portfolio-service:
+    build:
+      context: ./backend
+      dockerfile: portfolio-service/Dockerfile
+    container_name: trading-portfolio-service
+    ports:
+      - "8085:8085"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/trading_platform
+      SPRING_DATASOURCE_USERNAME: trading_user
+      SPRING_DATASOURCE_PASSWORD: trading_pass
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    networks:
+      - trading-network
+
+  # Risk Service
+  risk-service:
+    build:
+      context: ./backend
+      dockerfile: risk-service/Dockerfile
+    container_name: trading-risk-service
+    ports:
+      - "8086:8086"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/trading_platform
+      SPRING_DATASOURCE_USERNAME: trading_user
+      SPRING_DATASOURCE_PASSWORD: trading_pass
+      SPRING_REDIS_HOST: redis
+      SPRING_REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_started
+    networks:
+      - trading-network
+
+  # Backtesting Engine Service
+  backtesting-engine:
+    build:
+      context: ./backend
+      dockerfile: backtesting-engine/Dockerfile
+    container_name: trading-backtesting-engine
+    ports:
+      - "8087:8087"
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/trading_platform
+      SPRING_DATASOURCE_USERNAME: trading_user
+      SPRING_DATASOURCE_PASSWORD: trading_pass
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - trading-network
+
+  # Mock Broker (for testing)
+  mock-broker:
+    image: mockserver/mockserver:5.15.0
+    container_name: trading-mock-broker
+    ports:
+      - "8090:1080"
+    environment:
+      MOCKSERVER_INITIALIZATION_JSON_PATH: /config/mockserver.json
+    volumes:
+      - ./mock-broker/mockserver.json:/config/mockserver.json
+    networks:
+      - trading-network
+
+  # Frontend UI
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: trading-frontend
+    ports:
+      - "3000:3000"
+    networks:
+      - trading-network
+    depends_on:
+      - order-service
+      - portfolio-service
+      - market-data-service
+      - strategy-engine
+
+volumes:
+  postgres_data:
+  redis_data:
+  kafka_data:
+
+networks:
+  trading-network:
+    driver: bridge
