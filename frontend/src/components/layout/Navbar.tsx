@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
@@ -17,31 +17,55 @@ import {
   Wallet,
   Activity,
   Cpu,
-  FileBarChart
+  FileBarChart,
+  ShieldCheck,
+  Zap
 } from 'lucide-react';
-import { useAuthStore } from '../../store';
+import { useAuthStore, useOrderStore } from '../../store';
+import { orderApi } from '../../services/api';
 
 const navItems = [
-  { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/markets', label: 'Markets', icon: TrendingUp },
-  { path: '/trading', label: 'Trading', icon: LineChart },
-  { path: '/portfolio', label: 'Portfolio', icon: Briefcase },
-  { path: '/orders', label: 'Orders', icon: FileText },
-  { path: '/trades', label: 'Trades', icon: Activity },
-  { path: '/funds', label: 'Funds', icon: Wallet },
-  { path: '/strategies', label: 'Strategies', icon: Cpu },
-  { path: '/reports', label: 'Reports', icon: FileBarChart },
-  { path: '/news', label: 'News', icon: Newspaper },
-  { path: '/etf', label: 'ETFs', icon: PieChart },
-  { path: '/alerts', label: 'Alerts', icon: Bell },
+  { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, public: true },
+  { path: '/markets', label: 'Markets', icon: TrendingUp, public: true },
+  { path: '/trading', label: 'Trading', icon: LineChart, public: false },
+  { path: '/portfolio', label: 'Portfolio', icon: Briefcase, public: false },
+  { path: '/orders', label: 'Orders', icon: FileText, public: false },
+  { path: '/trades', label: 'Trades', icon: Activity, public: false },
+  { path: '/funds', label: 'Funds', icon: Wallet, public: false },
+  { path: '/strategies', label: 'Strategies', icon: Cpu, public: false },
+  { path: '/reports', label: 'Reports', icon: FileBarChart, public: false },
+  { path: '/news', label: 'News', icon: Newspaper, public: true },
+  { path: '/etf', label: 'ETFs', icon: PieChart, public: true },
+  { path: '/alerts', label: 'Alerts', icon: Bell, public: false },
 ];
 
 export default function Navbar() {
   const location = useLocation();
-  const { user, notifications, logout } = useAuthStore();
+  const { user, notifications, logout, isAuthenticated } = useAuthStore();
+  const { tradingMode, setTradingMode, fetchTradingMode } = useOrderStore();
+  
+  const filteredNavItems = navItems.filter(item => item.public || isAuthenticated);
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [isUpdatingMode, setIsUpdatingMode] = useState(false);
+
+  useEffect(() => {
+    fetchTradingMode();
+  }, [fetchTradingMode]);
+
+  const toggleTradingMode = async () => {
+    setIsUpdatingMode(true);
+    const newMode = tradingMode === 'SIMULATION' ? 'LIVE' : 'SIMULATION';
+    try {
+      await orderApi.setTradingMode(newMode);
+      setTradingMode(newMode);
+    } catch (error) {
+      console.error('Failed to update trading mode:', error);
+    } finally {
+      setIsUpdatingMode(false);
+    }
+  };
 
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -66,7 +90,7 @@ export default function Navbar() {
 
         {/* Desktop Navigation */}
         <div className="hidden lg:flex items-center gap-1">
-          {navItems.map((item) => {
+          {filteredNavItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
               <Link
@@ -86,90 +110,139 @@ export default function Navbar() {
         </div>
 
         {/* Right Side */}
-        <div className="flex items-center gap-2">
-          {/* Notifications */}
-          <div className="relative">
-            <button 
-              className="p-2 hover:bg-panel-100 rounded-lg relative"
-              onClick={() => setShowNotifications(!showNotifications)}
-            >
-              <Bell size={20} className="text-panel-600" />
-              {unreadCount > 0 && (
-                <span className="absolute top-1 right-1 w-4 h-4 bg-sell-600 text-white text-xs rounded-full flex items-center justify-center">
-                  {unreadCount}
+        <div className="flex items-center gap-4">
+          {isAuthenticated && (
+            <>
+              {/* Paper Trading Toggle */}
+              <div className="hidden sm:flex items-center gap-2 bg-panel-50 px-3 py-1.5 rounded-full border border-panel-200">
+                <span className={`text-[10px] font-bold uppercase tracking-wider ${tradingMode === 'SIMULATION' ? 'text-primary-600' : 'text-panel-400'}`}>
+                  Paper
                 </span>
-              )}
-            </button>
-            
-            {showNotifications && (
-              <div className="absolute right-0 mt-2 w-80 bg-white border border-panel-200 rounded-lg shadow-lg overflow-hidden">
-                <div className="px-4 py-3 border-b border-panel-200">
-                  <h3 className="font-semibold text-panel-900">Notifications</h3>
-                </div>
-                <div className="max-h-80 overflow-y-auto">
-                  {notifications.slice(0, 5).map((notification) => (
-                    <div 
-                      key={notification.id}
-                      className={`px-4 py-3 border-b border-panel-100 hover:bg-panel-50 ${
-                        !notification.read ? 'bg-primary-50' : ''
-                      }`}
-                    >
-                      <p className="text-sm font-medium text-panel-900">{notification.title}</p>
-                      <p className="text-sm text-panel-600 mt-1">{notification.message}</p>
-                    </div>
-                  ))}
-                </div>
-                <Link 
-                  to="/alerts" 
-                  className="block px-4 py-2 text-center text-primary-600 hover:bg-panel-50 text-sm font-medium"
-                >
-                  View All
-                </Link>
-              </div>
-            )}
-          </div>
-
-          {/* User Menu */}
-          <div className="relative">
-            <button 
-              className="flex items-center gap-2 p-2 hover:bg-panel-100 rounded-lg"
-              onClick={() => setShowUserMenu(!showUserMenu)}
-            >
-              <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
-                <User size={18} className="text-primary-600" />
-              </div>
-              <span className="hidden md:block text-sm font-medium text-panel-700">
-                {user?.name || 'Guest'}
-              </span>
-            </button>
-            
-            {showUserMenu && (
-              <div className="absolute right-0 mt-2 w-48 bg-white border border-panel-200 rounded-lg shadow-lg overflow-hidden">
-                <Link 
-                  to="/profile" 
-                  className="flex items-center gap-2 px-4 py-2 text-panel-700 hover:bg-panel-50"
-                >
-                  <User size={16} />
-                  Profile
-                </Link>
-                <Link 
-                  to="/settings" 
-                  className="flex items-center gap-2 px-4 py-2 text-panel-700 hover:bg-panel-50"
-                >
-                  <Settings size={16} />
-                  Settings
-                </Link>
-                <hr className="my-1 border-panel-200" />
                 <button 
-                  onClick={logout}
-                  className="flex items-center gap-2 px-4 py-2 text-sell-600 hover:bg-sell-50 w-full"
+                  onClick={toggleTradingMode}
+                  disabled={isUpdatingMode}
+                  className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none ${
+                    tradingMode === 'LIVE' ? 'bg-sell-600' : 'bg-primary-600'
+                  } ${isUpdatingMode ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
-                  <LogOut size={16} />
-                  Logout
+                  <span
+                    className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                      tradingMode === 'LIVE' ? 'translate-x-5' : 'translate-x-1'
+                    }`}
+                  />
                 </button>
+                <span className={`text-[10px] font-bold uppercase tracking-wider ${tradingMode === 'LIVE' ? 'text-sell-600' : 'text-panel-400'}`}>
+                  Live
+                </span>
+                {tradingMode === 'SIMULATION' ? (
+                  <Zap size={14} className="text-primary-600 ml-1 animate-pulse" />
+                ) : (
+                  <ShieldCheck size={14} className="text-sell-600 ml-1" />
+                )}
               </div>
-            )}
-          </div>
+
+              {/* Notifications */}
+              <div className="relative">
+                <button 
+                  className="p-2 hover:bg-panel-100 rounded-lg relative"
+                  onClick={() => setShowNotifications(!showNotifications)}
+                >
+                  <Bell size={20} className="text-panel-600" />
+                  {unreadCount > 0 && (
+                    <span className="absolute top-1 right-1 w-4 h-4 bg-sell-600 text-white text-xs rounded-full flex items-center justify-center">
+                      {unreadCount}
+                    </span>
+                  )}
+                </button>
+                
+                {showNotifications && (
+                  <div className="absolute right-0 mt-2 w-80 bg-white border border-panel-200 rounded-lg shadow-lg overflow-hidden">
+                    <div className="px-4 py-3 border-b border-panel-200">
+                      <h3 className="font-semibold text-panel-900">Notifications</h3>
+                    </div>
+                    <div className="max-h-80 overflow-y-auto">
+                      {notifications.slice(0, 5).map((notification) => (
+                        <div 
+                          key={notification.id}
+                          className={`px-4 py-3 border-b border-panel-100 hover:bg-panel-50 ${
+                            !notification.read ? 'bg-primary-50' : ''
+                          }`}
+                        >
+                          <p className="text-sm font-medium text-panel-900">{notification.title}</p>
+                          <p className="text-sm text-panel-600 mt-1">{notification.message}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <Link 
+                      to="/alerts" 
+                      className="block px-4 py-2 text-center text-primary-600 hover:bg-panel-50 text-sm font-medium"
+                    >
+                      View All
+                    </Link>
+                  </div>
+                )}
+              </div>
+
+              {/* User Menu */}
+              <div className="relative">
+                <button 
+                  className="flex items-center gap-2 p-2 hover:bg-panel-100 rounded-lg"
+                  onClick={() => setShowUserMenu(!showUserMenu)}
+                >
+                  <div className="w-8 h-8 bg-primary-100 rounded-full flex items-center justify-center">
+                    <User size={18} className="text-primary-600" />
+                  </div>
+                  <span className="hidden md:block text-sm font-medium text-panel-700">
+                    {user?.name || 'Guest'}
+                  </span>
+                </button>
+                
+                {showUserMenu && (
+                  <div className="absolute right-0 mt-2 w-48 bg-white border border-panel-200 rounded-lg shadow-lg overflow-hidden">
+                    <Link 
+                      to="/profile" 
+                      className="flex items-center gap-2 px-4 py-2 text-panel-700 hover:bg-panel-50"
+                    >
+                      <User size={16} />
+                      Profile
+                    </Link>
+                    <Link 
+                      to="/settings" 
+                      className="flex items-center gap-2 px-4 py-2 text-panel-700 hover:bg-panel-50"
+                    >
+                      <Settings size={16} />
+                      Settings
+                    </Link>
+                    <hr className="my-1 border-panel-200" />
+                    <button 
+                      onClick={logout}
+                      className="flex items-center gap-2 px-4 py-2 text-sell-600 hover:bg-sell-50 w-full"
+                    >
+                      <LogOut size={16} />
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
+          {!isAuthenticated && (
+            <div className="flex items-center gap-3">
+              <Link 
+                to="/login" 
+                className="text-sm font-medium text-panel-600 hover:text-panel-900 px-3 py-2"
+              >
+                Log In
+              </Link>
+              <Link 
+                to="/login" 
+                className="bg-primary-600 hover:bg-primary-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              >
+                Sign Up
+              </Link>
+            </div>
+          )}
         </div>
       </div>
 

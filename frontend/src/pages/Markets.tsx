@@ -1,11 +1,23 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useMarketStore } from '../store';
 import { Search, Filter, TrendingUp, BarChart2, TrendingDown } from 'lucide-react';
 
 export default function Markets() {
-  const { stocks, watchlists } = useMarketStore();
+  const { stocks, watchlists, fetchStocks, isLoading: storeLoading } = useMarketStore();
   const [activeTab, setActiveTab] = useState<'watchlist' | 'heatmap' | 'screener'>('watchlist');
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Fetch stocks on mount
+  useEffect(() => {
+    fetchStocks();
+    
+    // Refresh every 30 seconds
+    const interval = setInterval(() => {
+      fetchStocks();
+    }, 30000);
+    
+    return () => clearInterval(interval);
+  }, [fetchStocks]);
   
   // Screener filter states
   const [filterSector, setFilterSector] = useState('');

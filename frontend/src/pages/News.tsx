@@ -1,5 +1,6 @@
-import { useState } from 'react';
-import { Newspaper, TrendingUp, Filter, Clock, ExternalLink } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Newspaper, TrendingUp, Filter, Clock, ExternalLink, Brain, Sparkles, Loader2, Info } from 'lucide-react';
+import { aiApi, newsApi } from '../services';
 
 interface NewsItem {
   id: string;
@@ -9,6 +10,7 @@ interface NewsItem {
   time: string;
   source: string;
   image?: string;
+  summary?: string;
 }
 
 interface TrendingStock {
@@ -18,95 +20,59 @@ interface TrendingStock {
 }
 
 export default function News() {
+  const [news, setNews] = useState<NewsItem[]>([]);
+  const [trending, setTrending] = useState<TrendingStock[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filterCategory, setFilterCategory] = useState('');
+  const [sentiments, setSentiments] = useState<Record<string, any>>({});
+  const [analyzingId, setAnalyzingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const [newsData, trendingData] = await Promise.all([
+          newsApi.getNews(),
+          newsApi.getTrending()
+        ]);
+        setNews(newsData);
+        setTrending(trendingData);
+      } catch (error) {
+        console.error('Failed to fetch news data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, []);
+
+  const analyzeSentiment = async (item: NewsItem) => {
+    setAnalyzingId(item.id);
+    try {
+      const result = await aiApi.analyzeSentiment(item.title, item.summary || item.source);
+      setSentiments(prev => ({ ...prev, [item.id]: result }));
+    } catch (error) {
+      console.error('Sentiment analysis failed:', error);
+    } finally {
+      setAnalyzingId(null);
+    }
+  };
   
-  // Sample news data
-  const newsItems: NewsItem[] = [
-    {
-      id: '1',
-      tag: 'Markets',
-      tagColor: '#5b8af7',
-      title: 'NIFTY 50 hits record intraday high amid strong FII inflows and robust earnings season',
-      time: '2 hours ago',
-      source: 'Economic Times'
-    },
-    {
-      id: '2',
-      tag: 'Economy',
-      tagColor: '#00d084',
-      title: "India's GDP growth projected at 7.2% for FY25, beats analyst expectations",
-      time: '4 hours ago',
-      source: 'Business Standard'
-    },
-    {
-      id: '3',
-      tag: 'Company',
-      tagColor: '#f5a623',
-      title: 'Reliance Industries Q3 results: Net profit up 18% YoY to ₹21,930 crore',
-      time: '5 hours ago',
-      source: 'Mint'
-    },
-    {
-      id: '4',
-      tag: 'Global',
-      tagColor: '#a855f7',
-      title: 'US Fed signals rate cuts in 2025 — emerging markets including India set to benefit',
-      time: '6 hours ago',
-      source: 'Reuters'
-    },
-    {
-      id: '5',
-      tag: 'Company',
-      tagColor: '#f5a623',
-      title: 'TCS bags $1.5 billion multi-year deal with European financial services giant',
-      time: '8 hours ago',
-      source: 'CNBC TV18'
-    },
-    {
-      id: '6',
-      tag: 'Markets',
-      tagColor: '#5b8af7',
-      title: 'SEBI proposes tighter norms for F&O trading to protect retail investors',
-      time: '10 hours ago',
-      source: 'LiveMint'
-    },
-    {
-      id: '7',
-      tag: 'Economy',
-      tagColor: '#00d084',
-      title: 'RBI holds repo rate steady at 6.5% — fourth consecutive pause as inflation cools',
-      time: '1 day ago',
-      source: 'Bloomberg'
-    },
-    {
-      id: '8',
-      tag: 'Company',
-      tagColor: '#a855f7',
-      title: 'Sun Pharma gets USFDA nod for key oncology drug, stock surges 3%',
-      time: '1 day ago',
-      source: 'Moneycontrol'
-    },
-  ];
-
-  // Trending stocks in news
-  const trendingStocks: TrendingStock[] = [
-    { symbol: 'RELIANCE', mentions: 45, sentiment: 'positive' },
-    { symbol: 'TCS', mentions: 38, sentiment: 'positive' },
-    { symbol: 'HDFCBANK', mentions: 32, sentiment: 'neutral' },
-    { symbol: 'INFY', mentions: 28, sentiment: 'positive' },
-    { symbol: 'SUNPHARMA', mentions: 25, sentiment: 'positive' },
-    { symbol: 'TATAMOTORS', mentions: 22, sentiment: 'negative' },
-  ];
-
   const categories = ['', 'Markets', 'Economy', 'Company', 'Global'];
 
   const filteredNews = filterCategory 
-    ? newsItems.filter(item => item.tag === filterCategory)
-    : newsItems;
+    ? news.filter(item => item.tag === filterCategory)
+    : news;
 
   return (
     <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
+      {loading ? (
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <Loader2 className="w-12 h-12 text-primary-600 animate-spin" />
+          <p className="text-panel-500 animate-pulse">Fetching latest market headlines...</p>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-panel-900">Market News</h1>
         <span className="text-sm text-panel-500">Latest financial news from India & global markets</span>
       </div>
@@ -141,36 +107,85 @@ export default function News() {
             {filteredNews.map((item, index) => (
               <div 
                 key={item.id}
-                className={`p-4 border-b border-panel-100 last:border-0 hover:bg-panel-50 cursor-pointer transition-colors ${
-                  index === 0 ? 'bg-panel-50' : ''
+                className={`p-4 border-b border-panel-100 last:border-0 hover:bg-panel-50 transition-colors ${
+                  index === 0 ? 'bg-primary-50/30' : ''
                 }`}
               >
                 <div className="flex items-start gap-4">
                   {item.image && (
                     <div 
-                      className="w-20 h-16 rounded-lg bg-panel-200 flex-shrink-0"
+                      className="w-20 h-20 rounded-lg bg-panel-200 flex-shrink-0"
                       style={{ backgroundImage: `url(${item.image})`, backgroundSize: 'cover' }}
                     />
                   )}
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span 
-                        className="px-2 py-0.5 rounded text-xs font-semibold uppercase"
-                        style={{ backgroundColor: `${item.tagColor}20`, color: item.tagColor }}
-                      >
-                        {item.tag}
-                      </span>
-                      <span className="text-xs text-panel-500 flex items-center gap-1">
-                        <Clock size={12} />
-                        {item.time}
-                      </span>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <span 
+                          className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"
+                          style={{ backgroundColor: `${item.tagColor}20`, color: item.tagColor }}
+                        >
+                          {item.tag}
+                        </span>
+                        <span className="text-xs text-panel-500 flex items-center gap-1">
+                          <Clock size={12} />
+                          {item.time}
+                        </span>
+                      </div>
+                      
+                      {sentiments[item.id] ? (
+                        <div className={`flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold border ${
+                          sentiments[item.id].sentiment === 'BULLISH' 
+                            ? 'bg-buy-50 text-buy-600 border-buy-200' 
+                            : sentiments[item.id].sentiment === 'BEARISH'
+                            ? 'bg-sell-50 text-sell-600 border-sell-200'
+                            : 'bg-panel-50 text-panel-600 border-panel-200'
+                        }`}>
+                          <Sparkles size={12} />
+                          {sentiments[item.id].sentiment}
+                        </div>
+                      ) : (
+                        <button 
+                          onClick={() => analyzeSentiment(item)}
+                          disabled={analyzingId === item.id}
+                          className="text-primary-600 hover:text-primary-700 flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider transition-opacity hover:opacity-80"
+                        >
+                          {analyzingId === item.id ? (
+                            <Loader2 size={12} className="animate-spin" />
+                          ) : (
+                            <Brain size={12} />
+                          )}
+                          AI Sentiment
+                        </button>
+                      )}
                     </div>
-                    <h3 className="font-medium text-panel-900 mb-1 line-clamp-2">
+                    
+                    <h3 className="font-semibold text-panel-900 mb-1 line-clamp-2 hover:text-primary-600 transition-colors cursor-pointer">
                       {item.title}
                     </h3>
-                    <div className="flex items-center gap-2 text-xs text-panel-500">
-                      <span>{item.source}</span>
-                      <ExternalLink size={12} />
+                    
+                    {sentiments[item.id] && (
+                      <p className="text-xs text-panel-600 mb-2 italic border-l-2 border-panel-200 pl-2">
+                        "{sentiments[item.id].reason}"
+                      </p>
+                    )}
+                    
+                    <div className="flex items-center justify-between mt-2">
+                      <div className="flex items-center gap-2 text-[10px] font-medium text-panel-400">
+                        <span>{item.source}</span>
+                        <span>•</span>
+                        <div className="flex items-center gap-1 cursor-pointer hover:text-panel-600">
+                          <ExternalLink size={10} />
+                          Read More
+                        </div>
+                      </div>
+                      
+                      {sentiments[item.id] && (
+                        <div className="flex items-center gap-1 text-[10px] text-panel-400">
+                          <Info size={10} />
+                          AI Confidence: {Math.round(sentiments[item.id].score * 100)}%
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -188,7 +203,7 @@ export default function News() {
               <h3 className="font-semibold text-panel-900">Trending Stocks in News</h3>
             </div>
             <div className="space-y-3">
-              {trendingStocks.map((stock, index) => (
+              {trending.map((stock, index) => (
                 <div key={stock.symbol} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-panel-500 w-4">{index + 1}</span>
@@ -204,6 +219,9 @@ export default function News() {
                   </div>
                 </div>
               ))}
+              {trending.length === 0 && (
+                <p className="text-xs text-panel-400 text-center py-4">No trending data available</p>
+              )}
             </div>
           </div>
 
@@ -268,6 +286,8 @@ export default function News() {
           </div>
         </div>
       </div>
-    </div>
-  );
+    </>
+  )}
+</div>
+);
 }

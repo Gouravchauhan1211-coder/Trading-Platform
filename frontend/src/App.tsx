@@ -1,8 +1,10 @@
+import { useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuthStore } from './store';
 import { Navbar } from './components/layout';
 import { TradingTerminal } from './components/trading';
 import { Dashboard, Markets, Portfolio, Orders, Alerts, Login, News, CompanyDetails, ETFs, Funds, Trades, Strategies, Reports } from './pages';
+import { wsService } from './services';
 
 // Protected Route Component
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -26,6 +28,20 @@ function Layout({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  const { isAuthenticated } = useAuthStore();
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      wsService.connect();
+    } else {
+      wsService.disconnect();
+    }
+    
+    return () => {
+      wsService.disconnect();
+    };
+  }, [isAuthenticated]);
+
   return (
     <BrowserRouter>
       <Routes>
@@ -33,28 +49,44 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         
         {/* Protected Routes */}
+        {/* Publicly Accessible Pages */}
         <Route
           path="/dashboard"
           element={
-            <ProtectedRoute>
-              <Layout>
-                <Dashboard />
-              </Layout>
-            </ProtectedRoute>
+            <Layout>
+              <Dashboard />
+            </Layout>
           }
         />
         
         <Route
           path="/markets"
           element={
-            <ProtectedRoute>
-              <Layout>
-                <Markets />
-              </Layout>
-            </ProtectedRoute>
+            <Layout>
+              <Markets />
+            </Layout>
+          }
+        />
+
+        <Route
+          path="/news"
+          element={
+            <Layout>
+              <News />
+            </Layout>
           }
         />
         
+        <Route
+          path="/company/:symbol"
+          element={
+            <Layout>
+              <CompanyDetails />
+            </Layout>
+          }
+        />
+
+        {/* Protected Pages (Login Required) */}
         <Route
           path="/trading"
           element={
@@ -144,35 +176,11 @@ export default function App() {
         />
         
         <Route
-          path="/news"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <News />
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
-        
-        <Route
-          path="/company/:symbol"
-          element={
-            <ProtectedRoute>
-              <Layout>
-                <CompanyDetails />
-              </Layout>
-            </ProtectedRoute>
-          }
-        />
-        
-        <Route
           path="/etf"
           element={
-            <ProtectedRoute>
-              <Layout>
-                <ETFs />
-              </Layout>
-            </ProtectedRoute>
+            <Layout>
+              <ETFs />
+            </Layout>
           }
         />
         

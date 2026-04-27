@@ -7,6 +7,7 @@ interface OrderState {
   trades: Trade[];
   signals: Signal[];
   selectedOrderTab: 'positions' | 'orders' | 'trades' | 'signals';
+  tradingMode: 'SIMULATION' | 'LIVE';
   
   // Actions
   setOrders: (orders: Order[]) => void;
@@ -20,6 +21,8 @@ interface OrderState {
   setSignals: (signals: Signal[]) => void;
   addSignal: (signal: Signal) => void;
   setSelectedOrderTab: (tab: 'positions' | 'orders' | 'trades' | 'signals') => void;
+  setTradingMode: (mode: 'SIMULATION' | 'LIVE') => void;
+  fetchTradingMode: () => Promise<void>;
 }
 
 // Sample data
@@ -129,6 +132,7 @@ export const useOrderStore = create<OrderState>((set) => ({
   trades: sampleTrades,
   signals: sampleSignals,
   selectedOrderTab: 'positions',
+  tradingMode: 'SIMULATION',
 
   setOrders: (orders) => set({ orders }),
   
@@ -167,4 +171,16 @@ export const useOrderStore = create<OrderState>((set) => ({
   })),
   
   setSelectedOrderTab: (tab) => set({ selectedOrderTab: tab }),
+
+  setTradingMode: (mode) => set({ tradingMode: mode }),
+
+  fetchTradingMode: async () => {
+    try {
+      const { orderApi } = await import('../services/api');
+      const data = await orderApi.getTradingMode();
+      set({ tradingMode: data.mode });
+    } catch (error) {
+      console.error('Failed to fetch trading mode:', error);
+    }
+  },
 }));

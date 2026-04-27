@@ -1,9 +1,9 @@
 import { useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { usePortfolioStore, useOrderStore, useStrategyStore, useMarketStore } from '../store';
-import { marketApi } from '../services/api';
-import { TrendingUp, TrendingDown, Briefcase, Activity, FileText, Zap, ArrowRight, BarChart3, ListOrdered, Search } from 'lucide-react';
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, PieChart, Pie, Cell, AreaChart, Area } from 'recharts';
+import { portfolioApi, marketApi } from '../services/api';
+import { useAuthStore, usePortfolioStore, useOrderStore, useStrategyStore, useMarketStore } from '../store';
+import { TrendingUp, TrendingDown, Briefcase, Activity, FileText, Zap, ArrowRight, BarChart3, ListOrdered, Search, Loader2 } from 'lucide-react';
 import StockSearch from '../components/trading/StockSearch';
 import type { NSESymbol } from '../types';
 
@@ -150,10 +150,11 @@ function MarketMoverCard({ stock, type }: { stock: MarketMover; type: 'gainer' |
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const { summary, holdings } = usePortfolioStore();
+  const { summary, holdings, setHoldings, setSummary } = usePortfolioStore();
   const { positions, signals } = useOrderStore();
   const { strategies } = useStrategyStore();
   const { stocks } = useMarketStore();
+  const { isAuthenticated } = useAuthStore();
   
   // State for market data from API
   const [marketIndices, setMarketIndices] = useState<MarketIndex[]>([]);
@@ -162,13 +163,14 @@ export default function Dashboard() {
   const [topGainers, setTopGainers] = useState<MarketMover[]>([]);
   const [topLosers, setTopLosers] = useState<MarketMover[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLive, setIsLive] = useState(false);
   const [selectedStock, setSelectedStock] = useState<NSESymbol | null>(null);
   
   // Handle stock selection from search
   
-  // Fetch market data from API
+  // Fetch all data
   useEffect(() => {
-    const fetchMarketData = async () => {
+    const fetchData = async () => {
       setIsLoading(true);
       try {
         // Fetch indices
@@ -182,91 +184,68 @@ export default function Dashboard() {
             changePercent: ((parseFloat(item.lastPrice) - parseFloat(item.closePrice)) / parseFloat(item.closePrice)) * 100 || 0
           }));
           setMarketIndices(indices);
+          setIsLive(true);
         }
         
-        // Fetch most active by volume
-        const volumeData = await marketApi.getMostActive('volume');
-        if (Array.isArray(volumeData)) {
-          setActiveByVolume(volumeData.map((item: any) => ({
-            symbol: item.symbol,
-            lastPrice: parseFloat(item.lastPrice) || 0,
-            volume: parseInt(item.volume) || 0
-          })));
-        }
-        
-        // Fetch most active by value
-        const valueData = await marketApi.getMostActive('value');
-        if (Array.isArray(valueData)) {
-          setActiveByValue(valueData.map((item: any) => ({
-            symbol: item.symbol,
-            lastPrice: parseFloat(item.lastPrice) || 0,
-            volume: parseInt(item.volume) || 0
-          })));
-        }
-        
-        // Fetch gainers
-        const gainersData = await marketApi.getMovers('gainers');
-        if (Array.isArray(gainersData)) {
-          setTopGainers(gainersData.map((item: any) => ({
-            symbol: item.symbol,
-            lastPrice: parseFloat(item.lastPrice) || 0,
-            closePrice: parseFloat(item.closePrice) || 0
-          })));
-        }
-        
-        // Fetch losers
-        const losersData = await marketApi.getMovers('losers');
-        if (Array.isArray(losersData)) {
-          setTopLosers(losersData.map((item: any) => ({
-            symbol: item.symbol,
-            lastPrice: parseFloat(item.lastPrice) || 0,
-            closePrice: parseFloat(item.closePrice) || 0
-          })));
+        // Fetch most active
+        const [volumeData, valueData, gainersData, losersData] = await Promise.all([
+          marketApi.getMostActive('volume'),
+          marketApi.getMostActive('value'),
+          marketApi.getMovers('gainers'),
+          marketApi.getMovers('losers')
+        ]);
+
+        if (Array.isArray(volumeData)) setActiveByVolume(volumeData.map(i => ({ symbol: i.symbol, lastPrice: parseFloat(i.lastPrice), volume: parseInt(i.volume) })));
+        if (Array.isArray(valueData)) setActiveByValue(valueData.map(i => ({ symbol: i.symbol, lastPrice: parseFloat(i.lastPrice), volume: parseInt(i.volume) })));
+        if (Array.isArray(gainersData)) setTopGainers(gainersData.map(i => ({ symbol: i.symbol, lastPrice: parseFloat(i.lastPrice), closePrice: parseFloat(i.closePrice) })));
+        if (Array.isArray(losersData)) setTopLosers(losersData.map(i => ({ symbol: i.symbol, lastPrice: parseFloat(i.lastPrice), closePrice: parseFloat(i.closePrice) })));
+
+        // Fetch portfolio if authenticated
+        if (isAuthenticated) {
+          try {
+            const [holdingsData, summaryData] = await Promise.all([
+              portfolioApi.getPositions(),
+              portfolioApi.getPortfolioSummary()
+            ]);
+            
+            // Map raw positions to PortfolioHolding type
+            const mappedHoldings = holdingsData.map((p: any) => ({
+              symbol: p.symbol,
+              name: p.symbol,
+              quantity: p.quantity,
+              averagePrice: p.averagePrice,
+              ltp: p.currentPrice,
+              currentValue: p.quantity * p.currentPrice,
+              pnl: p.unrealizedPnl || 0,
+              pnlPercent: (p.unrealizedPnl / (p.quantity * p.averagePrice)) * 100 || 0,
+              allocation: summaryData.totalValue > 0 ? ((p.quantity * p.currentPrice) / summaryData.totalValue) * 100 : 0
+            }));
+
+            setHoldings(mappedHoldings);
+            setSummary(summaryData);
+          } catch (e) {
+            console.error('Failed to fetch real portfolio, keeping sample data', e);
+          }
         }
       } catch (error) {
-        console.error('Failed to fetch market data:', error);
-        // Use fallback sample data on error
+        console.error('Failed to fetch market data, using fallback:', error);
+        setIsLive(false);
+        // Fallback data
         setMarketIndices([
           { symbol: 'NIFTY', name: 'NIFTY 50', lastPrice: 23151.10, change: -488.05, changePercent: -2.06 },
           { symbol: 'BANKNIFTY', name: 'BANKNIFTY', lastPrice: 53757.85, change: -1343.10, changePercent: -2.44 },
           { symbol: 'SENSEX', name: 'SENSEX', lastPrice: 74563.92, change: -1470.50, changePercent: -1.93 },
           { symbol: 'NIFTYMIDCAP', name: 'NIFTY MIDCAP', lastPrice: 54761.10, change: -1492.65, changePercent: -2.65 },
         ]);
-        setActiveByVolume([
-          { symbol: 'IDEA', lastPrice: 0, volume: 570944045 },
-          { symbol: 'IFCI', lastPrice: 0, volume: 217069799 },
-          { symbol: 'NTPCGREEN', lastPrice: 0, volume: 177681435 },
-          { symbol: 'SEPC', lastPrice: 0, volume: 103596898 },
-          { symbol: 'YESBANK', lastPrice: 0, volume: 94002650 },
-        ]);
-        setActiveByValue([
-          { symbol: 'LT', lastPrice: 3706810000, volume: 0 },
-          { symbol: 'HDFCBANK', lastPrice: 3406930000, volume: 0 },
-          { symbol: 'RELIANCE', lastPrice: 2383790000, volume: 0 },
-          { symbol: 'ICICIBANK', lastPrice: 2176370000, volume: 0 },
-          { symbol: 'M&M', lastPrice: 2115560000, volume: 0 },
-        ]);
-        setTopGainers([
-          { symbol: 'ARYAMAN', lastPrice: 440.00, closePrice: 403.50 },
-          { symbol: 'AKI', lastPrice: 4.77, closePrice: 4.47 },
-          { symbol: 'SHYAMINV', lastPrice: 12.00, closePrice: 11.25 },
-          { symbol: 'ORIENTLTD', lastPrice: 69.90, closePrice: 65.57 },
-          { symbol: 'KREON', lastPrice: 33.52, closePrice: 31.35 },
-        ]);
-        setTopLosers([
-          { symbol: 'SUNSKY', lastPrice: 70.50, closePrice: 77.37 },
-          { symbol: 'DHANLAX', lastPrice: 56.00, closePrice: 59.67 },
-          { symbol: 'SHARMAH', lastPrice: 82.04, closePrice: 87.36 },
-          { symbol: 'ACKNIT', lastPrice: 253.30, closePrice: 267.23 },
-          { symbol: 'USGTECH', lastPrice: 8.50, closePrice: 8.97 },
-        ]);
       } finally {
         setIsLoading(false);
       }
     };
     
-    fetchMarketData();
-  }, []);
+    fetchData();
+    const interval = setInterval(fetchData, 30000); // Refresh every 30s
+    return () => clearInterval(interval);
+  }, [isAuthenticated, setHoldings, setSummary]);
   
   // Convert stocks object to array
   const stockList = Object.values(stocks);
@@ -376,7 +355,19 @@ export default function Dashboard() {
         <div className="flex items-center gap-2 mb-4">
           <BarChart3 size={20} className="text-primary-600" />
           <h3 className="text-lg font-semibold text-panel-900">Market Indices</h3>
-          {isLoading && <span className="text-xs text-panel-500 ml-2">Loading...</span>}
+          <div className="flex items-center gap-2 ml-auto">
+            {isLive ? (
+              <span className="flex items-center gap-1 text-[10px] font-bold text-buy-600 bg-buy-50 px-2 py-0.5 rounded-full border border-buy-100">
+                <span className="w-1.5 h-1.5 bg-buy-600 rounded-full animate-pulse" />
+                LIVE DATA
+              </span>
+            ) : (
+              <span className="text-[10px] font-bold text-panel-400 bg-panel-50 px-2 py-0.5 rounded-full border border-panel-200">
+                DELAYED DATA
+              </span>
+            )}
+            {isLoading && <Loader2 size={12} className="text-panel-400 animate-spin" />}
+          </div>
         </div>
         <div className="flex gap-4 overflow-x-auto pb-2 scrollbar-thin">
           {marketIndices.length > 0 ? (

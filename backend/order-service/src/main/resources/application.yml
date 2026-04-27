@@ -25,4 +25,24 @@ app:
     mode: SIMULATION
     broker: NONE
   market-data-service:
-    url: ${MARKET_DATA_SERVICE_URL:http://market-data-service:8082}
+    url: ${MARKET_DATA_SERVICE_URL:http://localhost:8082}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://zipkin:9411/api/v2/spans
+

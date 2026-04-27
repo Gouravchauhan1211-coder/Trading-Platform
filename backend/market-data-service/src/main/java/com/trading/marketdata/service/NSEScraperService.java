@@ -40,6 +40,10 @@ public class NSEScraperService {
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate;
     private final RedisTemplate<String, String> redisTemplate;
+    
+    private String nseCookies = null;
+    private Instant lastCookieFetchTime = null;
+    private static final Duration COOKIE_EXPIRY = Duration.ofMinutes(15);
 
     private static final String NSE_EQ_URL = "https://www.nseindia.com/api/equity-stock";
     private static final String NSE_ALL_SYMBOLS_URL = "https://www.nseindia.com/api/equity-stock?index=sec_eq";
@@ -61,6 +65,10 @@ public class NSEScraperService {
     @RateLimiter(name = "nseScraperService")
     @TimeLimiter(name = "nseScraperService")
     public CompletableFuture<List<NSESymbol>> fetchAllNSESymbols() {
+        if (!ensureNseSession()) {
+            log.warn("Failed to establish NSE session, symbols fetch might fail");
+        }
+        
         log.info("Starting NSE stock symbols fetch from NSE India...");
         long startTime = System.currentTimeMillis();
         List<NSESymbol> symbols = new ArrayList<>();
@@ -344,9 +352,11 @@ public class NSEScraperService {
                 log.debug("Error fetching price for {}: {}", symbol.getSymbol(), e.getMessage());
                 
                 // If we get too many errors, take a longer break
-                if (errorCount % 10 == 0) {
+                if (errorCount % 5 == 0 && errorCount > 0) {
+                    log.warn("Encountered {} errors in price fetch, taking a cool-down break...", errorCount);
                     try {
-                        Thread.sleep(ThreadLocalRandom.current().nextInt(1000, 3000));
+                        Thread.sleep(ThreadLocalRandom.current().nextInt(2000, 5000));
+                        ensureNseSession(); // Refresh session after break
                     } catch (InterruptedException ie) {
                         Thread.currentThread().interrupt();
                         break;
@@ -365,6 +375,10 @@ public class NSEScraperService {
     public CompletableFuture<MarketPriceEvent> fetchStockPrice(String symbol) {
         log.debug("Fetching stock price for symbol: {}", symbol);
         long startTime = System.currentTimeMillis();
+        
+        if (!ensureNseSession()) {
+            log.warn("Failed to establish NSE session for symbol: {}", symbol);
+        }
         
         try {
             HttpHeaders headers = createNSEHeaders();
@@ -574,16 +588,63 @@ public class NSEScraperService {
         headers.set("User-Agent", getRandomUserAgent());
         headers.set("Accept", "application/json, text/plain, */*");
         headers.set("Accept-Language", "en-US,en;q=0.9");
-        headers.set("Accept-Encoding", "gzip, deflate, br");
+        headers.set("Accept-Encoding", "gzip, deflate");
         headers.set("Connection", "keep-alive");
         headers.set("Referer", "https://www.nseindia.com/");
         headers.set("Origin", "https://www.nseindia.com");
+        
+        if (nseCookies != null) {
+            headers.set("Cookie", nseCookies);
+        }
+        
         headers.set("Sec-Fetch-Dest", "empty");
         headers.set("Sec-Fetch-Mode", "cors");
         headers.set("Sec-Fetch-Site", "same-origin");
         headers.set("Cache-Control", "no-cache");
         headers.set("Pragma", "no-cache");
         return headers;
+    }
+
+    /**
+     * Ensure we have a valid NSE session by fetching the homepage
+     */
+    private synchronized boolean ensureNseSession() {
+        if (nseCookies != null && lastCookieFetchTime != null && 
+            Duration.between(lastCookieFetchTime, Instant.now()).compareTo(COOKIE_EXPIRY) < 0) {
+            return true;
+        }
+
+        log.info("Fetching new NSE session cookies...");
+        try {
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("User-Agent", getRandomUserAgent());
+            headers.set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8");
+            headers.set("Accept-Language", "en-US,en;q=0.9");
+            
+            HttpEntity<String> entity = new HttpEntity<>(headers);
+            ResponseEntity<String> response = restTemplate.exchange(
+                "https://www.nseindia.com/",
+                HttpMethod.GET,
+                entity,
+                String.class
+            );
+
+            List<String> cookies = response.getHeaders().get("Set-Cookie");
+            if (cookies != null && !cookies.isEmpty()) {
+                StringBuilder sb = new StringBuilder();
+                for (String cookie : cookies) {
+                    if (sb.length() > 0) sb.append("; ");
+                    sb.append(cookie.split(";")[0]);
+                }
+                this.nseCookies = sb.toString();
+                this.lastCookieFetchTime = Instant.now();
+                log.info("Successfully obtained NSE session cookies");
+                return true;
+            }
+        } catch (Exception e) {
+            log.error("Error fetching NSE session cookies: {}", e.getMessage());
+        }
+        return false;
     }
 
     /**

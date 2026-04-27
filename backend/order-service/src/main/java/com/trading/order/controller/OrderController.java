@@ -44,5 +44,15 @@ public class OrderController {
             "mode", orderService.getTradingMode()
         ));
     }
+
+    @PostMapping("/mode")
+    public ResponseEntity<Map<String, String>> setTradingMode(@RequestBody Map<String, String> request) {
+        String mode = request.get("mode");
+        orderService.setTradingMode(mode);
+        return ResponseEntity.ok(Map.of(
+            "message", "Trading mode updated successfully",
+            "mode", mode
+        ));
+    }
 }
 

@@ -32,8 +32,11 @@ public class OrderService {
     private String marketDataServiceUrl;
 
     @Value("${app.trading.mode:SIMULATION}")
-    private String tradingMode;
+    private String defaultTradingMode;
 
+    private String currentTradingMode = null;
+
+    private static final String TRADING_MODE_KEY = "trading:mode";
     private static final String PRICE_CACHE_PREFIX = "price:";
 
     /**
@@ -45,7 +48,8 @@ public class OrderService {
 
         order.setOrderId(UUID.randomUUID().toString());
         order.setCreatedAt(Instant.now());
-        order.setTradingMode(tradingMode);
+        String mode = getTradingMode();
+        order.setTradingMode(mode);
 
         try {
             // Get execution price from Redis cache
@@ -64,7 +68,7 @@ public class OrderService {
             }
 
             // In simulation mode, immediately fill the order
-            if ("SIMULATION".equalsIgnoreCase(tradingMode)) {
+            if ("SIMULATION".equalsIgnoreCase(getTradingMode())) {
                 order.setStatus(OrderEvent.OrderStatus.FILLED);
                 order.setUpdatedAt(Instant.now());
                 
@@ -180,7 +184,32 @@ public class OrderService {
      * Get current trading mode
      */
     public String getTradingMode() {
-        return tradingMode;
+        if (currentTradingMode != null) return currentTradingMode;
+        
+        try {
+            String mode = redisTemplate.opsForValue().get(TRADING_MODE_KEY);
+            if (mode != null) {
+                currentTradingMode = mode;
+                return mode;
+            }
+        } catch (Exception e) {
+            log.error("Error fetching mode from Redis: {}", e.getMessage());
+        }
+        
+        return defaultTradingMode;
+    }
+
+    /**
+     * Set current trading mode
+     */
+    public void setTradingMode(String mode) {
+        this.currentTradingMode = mode;
+        try {
+            redisTemplate.opsForValue().set(TRADING_MODE_KEY, mode);
+            log.info("Trading mode updated to: {}", mode);
+        } catch (Exception e) {
+            log.error("Error saving mode to Redis: {}", e.getMessage());
+        }
     }
 }
 

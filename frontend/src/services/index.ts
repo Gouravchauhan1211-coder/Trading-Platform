@@ -21,3 +21,4 @@ export {
   historicalApi,
 } from './api';
 export { wsService } from './websocket';
+export { aiApi } from './aiApi';

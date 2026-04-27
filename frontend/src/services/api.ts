@@ -423,6 +423,18 @@ export const orderApi = {
     }
     return response.json();
   },
+
+  setTradingMode: async (mode: 'SIMULATION' | 'LIVE') => {
+    const response = await fetch('/api/orders/mode', {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      body: JSON.stringify({ mode }),
+    });
+    if (!response.ok) {
+      throw new Error('Failed to update trading mode');
+    }
+    return response.json();
+  },
 };
 
 // ============================================

@@ -3,7 +3,10 @@ WORKDIR /app
 COPY package.json ./
 RUN npm install
 COPY . .
-ENV REACT_APP_API_URL=http://localhost:8000
+ARG VITE_API_URL
+ARG VITE_WS_URL
+ENV VITE_API_URL=$VITE_API_URL
+ENV VITE_WS_URL=$VITE_WS_URL
 RUN npm run build
 
 FROM nginx:alpine

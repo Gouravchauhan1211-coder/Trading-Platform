@@ -11,7 +11,7 @@ spring:
     driver-class-name: org.postgresql.Driver
   jpa:
     hibernate:
-      ddl-auto: create-drop
+      ddl-auto: update
     show-sql: false
   data:
     redis:
@@ -41,6 +41,12 @@ management:
     export:
       prometheus:
         enabled: true
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://zipkin:9411/api/v2/spans
 
 # Resilience4j Configuration
 resilience4j:
@@ -140,11 +146,11 @@ resilience4j:
 # Logging Configuration
 logging:
   level:
-    com.trading.marketdata: DEBUG
-    io.github.resilience4j: INFO
-    org.springframework.web.client: DEBUG
-    org.springframework.retry: DEBUG
-    com.fasterxml.jackson: DEBUG
+    com.trading.marketdata: INFO
+    io.github.resilience4j: WARN
+    org.springframework.web.client: INFO
+    org.springframework.retry: INFO
+    com.fasterxml.jackson: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{traceId},%X{spanId}] %logger{36} - %msg%n"
     file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level [%X{traceId},%X{spanId}] %logger{36} - %msg%n"
@@ -152,3 +158,17 @@ logging:
     name: logs/market-data-service.log
     max-size: 100MB
     max-history: 30
+
+# AI Integration Configuration
+ai:
+  provider: ${AI_PROVIDER:openai}
+  openai:
+    api-key: ${OPENAI_API_KEY:}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+  perplexity:
+    api-key: ${PERPLEXITY_API_KEY:}
+    base-url: ${PERPLEXITY_BASE_URL:https://api.perplexity.ai}
+  grok:
+    api-key: ${GROK_API_KEY:}
+    base-url: ${GROK_BASE_URL:https://api.x.ai/v1}
+

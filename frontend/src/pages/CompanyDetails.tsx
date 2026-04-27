@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { useMarketStore } from '../store';
-import { Building2, TrendingUp, TrendingDown, BarChart3, Calendar, ArrowLeft, Plus, Minus } from 'lucide-react';
+import { useMarketStore, useAuthStore } from '../store';
+import { Building2, TrendingUp, TrendingDown, BarChart3, Calendar, ArrowLeft, Plus, Minus, Brain, Loader2, Sparkles } from 'lucide-react';
+import { aiApi } from '../services';
+import type { AIAnalysisResponse } from '../services/aiApi';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 interface CompanyFinancial {
@@ -21,10 +23,19 @@ interface KeyRatio {
 export default function CompanyDetails() {
   const navigate = useNavigate();
   const { symbol } = useParams();
-  const { stocks } = useMarketStore();
+  const { stocks, fetchStocks: fetchAllStocks } = useMarketStore();
+  const { isAuthenticated } = useAuthStore();
   
   // Use symbol from params or default to RELIANCE
   const stockSymbol = symbol || 'RELIANCE';
+
+  // Fetch stocks if not loaded
+  useEffect(() => {
+    if (Object.keys(stocks).length === 0) {
+      fetchAllStocks();
+    }
+  }, [fetchAllStocks, stocks]);
+
   const stock = stocks[stockSymbol] || {
     symbol: stockSymbol,
     name: stockSymbol === 'RELIANCE' ? 'Reliance Industries' : 
@@ -78,6 +89,31 @@ export default function CompanyDetails() {
   }));
 
   const isPositive = stock.changePercent >= 0;
+
+  // AI Analysis State
+  const [aiAnalysis, setAiAnalysis] = useState<AIAnalysisResponse | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+
+  const handleGetAIAnalysis = async () => {
+    setIsAnalyzing(true);
+    try {
+      const result = await aiApi.analyzeStock({
+        symbol: stockSymbol,
+        price: stock.ltp,
+        changePercent: stock.changePercent,
+        volume: stock.volume,
+        sector: company.sector,
+      });
+      setAiAnalysis(result);
+      setAiError(null);
+    } catch (error) {
+      console.error('AI Analysis failed:', error);
+      setAiError('Failed to get AI insights. Please check your API keys or try again later.');
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -194,6 +230,112 @@ export default function CompanyDetails() {
             </ResponsiveContainer>
           </div>
         </div>
+
+        {/* AI Insights Card */}
+        <div className="lg:col-span-3 card p-4 bg-gradient-to-br from-indigo-50 to-white border-indigo-100 overflow-hidden relative">
+          <div className="absolute top-0 right-0 p-4 opacity-10">
+            <Brain size={120} className="text-indigo-600" />
+          </div>
+          
+          <div className="flex items-center justify-between mb-4 relative">
+            <div className="flex items-center gap-2">
+              <Sparkles size={20} className="text-indigo-600" />
+              <h3 className="font-semibold text-panel-900 text-lg">AI Insights for Beginners</h3>
+            </div>
+            {!aiAnalysis && !isAnalyzing && (
+              <button 
+                onClick={handleGetAIAnalysis}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                Analyze with AI
+              </button>
+            )}
+          </div>
+
+          {isAnalyzing ? (
+            <div className="flex flex-col items-center justify-center py-10 space-y-4">
+              <Loader2 className="animate-spin text-indigo-600" size={32} />
+              <p className="text-indigo-600 font-medium">AI is analyzing market data and trends...</p>
+            </div>
+          ) : aiAnalysis ? (
+            <div className="space-y-4 relative">
+              <div className="flex items-center gap-3">
+                <div className={`px-4 py-2 rounded-xl font-bold text-white shadow-sm ${
+                  aiAnalysis.recommendation === 'BUY' ? 'bg-buy-600' : 
+                  aiAnalysis.recommendation === 'SELL' ? 'bg-sell-600' : 'bg-amber-500'
+                }`}>
+                  {aiAnalysis.recommendation || 'HOLD'}
+                </div>
+                <div>
+                  <div className="text-xs text-panel-500 uppercase tracking-wider font-semibold">Timeframe</div>
+                  <div className="font-bold text-panel-900">{aiAnalysis.timeframe || 'Short to Medium Term'}</div>
+                </div>
+              </div>
+
+              <div className="bg-white/60 backdrop-blur-sm p-4 rounded-xl border border-indigo-50">
+                <p className="text-panel-700 leading-relaxed text-sm">
+                  {aiAnalysis.summary}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold text-buy-700 uppercase flex items-center gap-1">
+                    <TrendingUp size={14} /> Pros
+                  </h4>
+                  <ul className="text-xs space-y-1 text-panel-600">
+                    {aiAnalysis.pros ? aiAnalysis.pros.map((pro, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <span className="text-buy-500 mt-0.5">•</span> {pro}
+                      </li>
+                    )) : (
+                      <li className="italic">Good market position and technical setup.</li>
+                    )}
+                  </ul>
+                </div>
+                <div className="space-y-2">
+                  <h4 className="text-xs font-bold text-sell-700 uppercase flex items-center gap-1">
+                    <TrendingDown size={14} /> Risks
+                  </h4>
+                  <ul className="text-xs space-y-1 text-panel-600">
+                    {aiAnalysis.cons ? aiAnalysis.cons.map((con, i) => (
+                      <li key={i} className="flex items-start gap-2">
+                        <span className="text-sell-500 mt-0.5">•</span> {con}
+                      </li>
+                    )) : (
+                      <li className="italic">Volatility and global market sentiment.</li>
+                    )}
+                  </ul>
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center gap-2 text-xs font-medium text-panel-500">
+                <span>Sentiment:</span>
+                <span className={`px-2 py-0.5 rounded-full ${
+                  aiAnalysis.sentiment === 'BULLISH' ? 'bg-buy-50 text-buy-700' : 'bg-sell-50 text-sell-700'
+                }`}>
+                  {aiAnalysis.sentiment || 'NEUTRAL'}
+                </span>
+                <button 
+                  onClick={handleGetAIAnalysis}
+                  className="ml-auto text-indigo-600 hover:underline"
+                >
+                  Regenerate
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="py-6 text-center text-panel-500">
+              {aiError ? (
+                <div className="text-sell-600 bg-sell-50 p-3 rounded-lg mb-4 inline-block border border-sell-100">
+                  {aiError}
+                </div>
+              ) : (
+                <p>Get a simplified analysis of this stock powered by AI (ChatGPT/Perplexity/Grok).</p>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Financials Table */}
@@ -233,13 +375,28 @@ export default function CompanyDetails() {
       {/* Action Buttons */}
       <div className="flex gap-4">
         <button 
-          onClick={() => navigate('/trading', { state: { symbol: stockSymbol } })}
+          onClick={() => {
+            if (isAuthenticated) {
+              navigate('/trading', { state: { symbol: stockSymbol } });
+            } else {
+              navigate('/login', { state: { from: `/company/${stockSymbol}` } });
+            }
+          }}
           className="flex-1 bg-buy-600 hover:bg-buy-700 text-white py-3 px-6 rounded-lg font-medium flex items-center justify-center gap-2"
         >
           <Plus size={20} />
           Buy Stock
         </button>
-        <button className="flex-1 bg-sell-600 hover:bg-sell-700 text-white py-3 px-6 rounded-lg font-medium flex items-center justify-center gap-2">
+        <button 
+          onClick={() => {
+            if (isAuthenticated) {
+              navigate('/trading', { state: { symbol: stockSymbol, side: 'SELL' } });
+            } else {
+              navigate('/login', { state: { from: `/company/${stockSymbol}` } });
+            }
+          }}
+          className="flex-1 bg-sell-600 hover:bg-sell-700 text-white py-3 px-6 rounded-lg font-medium flex items-center justify-center gap-2"
+        >
           <Minus size={20} />
           Sell Stock
         </button>
