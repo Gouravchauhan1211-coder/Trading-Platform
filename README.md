@@ -1,11 +1,11 @@
-# 🏦 Winvestco: Institutional Grade Multi-Asset Trading Platform
+# 🏦 QuantPulse: Institutional Grade Multi-Asset Trading Platform
 
 ![Java Version](https://img.shields.io/badge/Java-21-orange.svg)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.2.x-brightgreen.svg)
 ![Microservices](https://img.shields.io/badge/Architecture-Microservices-blue.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
-Winvestco is a high-performance, distributed trading engine designed to meet the rigorous demands of modern financial markets. Engineered with a cloud-native microservices architecture, it leverages the latest advancements in Java 21, including Virtual Threads (Project Loom), to achieve unprecedented concurrency and throughput.
+QuantPulse is a high-performance, distributed trading engine designed to meet the rigorous demands of modern financial markets. Engineered with a cloud-native microservices architecture, it leverages the latest advancements in Java 21, including Virtual Threads (Project Loom), to achieve unprecedented concurrency and throughput.
 
 ## 🏛 Technical Vision
 
@@ -19,7 +19,7 @@ The platform is built on five core architectural pillars:
 
 ## 🏗 System Architecture
 
-Winvestco utilizes a sophisticated distributed system composed of 14 specialized services, each owning its domain and persistence layer.
+QuantPulse utilizes a sophisticated distributed system composed of 14 specialized services, each owning its domain and persistence layer.
 
 ### Core Ecosystem
 
@@ -27,7 +27,7 @@ Winvestco utilizes a sophisticated distributed system composed of 14 specialized
 
 ### 🚀 Performance Benchmarks: Java 21 Virtual Threads
 
-Operating on a standard platform hardware, Winvestco demonstrates massive scalability by offloading platform threads to lightweight virtual threads.
+Operating on a standard platform hardware, QuantPulse demonstrates massive scalability by offloading platform threads to lightweight virtual threads.
 
 | Concurrent Tasks | Execution Time | Platform Thread Blocking | Speedup Factor |
 |------------------|----------------|--------------------------|----------------|
@@ -44,9 +44,9 @@ Operating on a standard platform hardware, Winvestco demonstrates massive scalab
 
 ---
 
-## 🎨 Frontend Application: Winvestco Terminal
+## 🎨 Frontend Application: QuantPulse Terminal
 
-The Winvestco Frontend is a modern, high-performance web terminal built for traders who demand speed and clarity. It provides a real-time, interactive environment for market analysis and execution.
+The QuantPulse Frontend is a modern, high-performance web terminal built for traders who demand speed and clarity. It provides a real-time, interactive environment for market analysis and execution.
 
 ### ✨ Key Interface Features
 
@@ -168,7 +168,7 @@ The system is instrumented for "Real-world Production" readiness with a comprehe
 ### Quick Access
 | Tool | Default Port | Access URL | Purpose |
 |------|--------------|------------|---------|
-| Grafana | 3000 | [http://localhost:3000](http://localhost:3000) (admin/winvestco) | Central dashboards & visualization |
+| Grafana | 3000 | [http://localhost:3000](http://localhost:3000) (admin/quantpulse) | Central dashboards & visualization |
 | Prometheus | 9090 | [http://localhost:9090](http://localhost:9090) | Metrics collection & alerting |
 | Jaeger | 16686 | [http://localhost:16686](http://localhost:16686) | Distributed tracing |
 | Loki | 3100 | [http://localhost:3100](http://localhost:3100) | Log aggregation |
